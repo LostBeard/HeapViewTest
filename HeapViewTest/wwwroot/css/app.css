@@ -316,6 +316,10 @@ a:hover {
     gap: 0.75rem;
 }
 
+.stat-grid-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
 .stat {
     display: flex;
     flex-direction: column;
@@ -390,4 +394,82 @@ a:hover {
 .benchmark-footer a:hover {
     color: #94a3b8;
     text-decoration: underline;
+}
+
+/* Stress Test Toggle */
+
+.toggle-label {
+    min-width: auto !important;
+}
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toggle-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+}
+
+.toggle-row input[type="checkbox"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.toggle-hint {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: #64748b;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Error / Status Indicators */
+
+.result-card.has-errors {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+}
+
+.badge-error {
+    background: #ef4444 !important;
+}
+
+.badge-gc {
+    background: #8b5cf6 !important;
+}
+
+.stat-error {
+    color: #f87171 !important;
+}
+
+.stat-ok {
+    color: #10b981 !important;
+}
+
+.row-error td {
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.status-error {
+    color: #f87171;
+    font-size: 0.8rem;
+}
+
+.status-ok {
+    color: #10b981;
+}
+
+/* Details table overflow */
+
+.details-section {
+    overflow-x: auto;
+}
+
+.details-section table {
+    min-width: 700px;
 }

@@ -38,6 +38,13 @@
                     <option value="20">20</option>
                 </select>
             </label>
+            <label class="toggle-label">
+                <span>Stress Test</span>
+                <div class="toggle-row">
+                    <input type="checkbox" @bind="_stressTest" disabled="@_running" />
+                    <span class="toggle-hint">Force GC between iterations</span>
+                </div>
+            </label>
             <button class="btn-run" disabled="@_running" @onclick="RunAllBenchmarks">
                 @if (_running)
                 {
@@ -67,15 +74,18 @@
         <section class="results-section">
             <h2>Results</h2>
             <div class="results-grid">
-                @foreach (var group in _results.GroupBy(r => r.Method).OrderBy(g => g.Min(r => r.Avg)))
+                @foreach (var summary in _results.OrderBy(r => r.Avg))
                 {
-                    var best = _results.GroupBy(r => r.Method).OrderBy(g => g.First().Avg).First().Key;
-                    var isBest = group.Key == best;
-                    var summary = group.First();
-                    <div class="result-card @(isBest ? "best" : "")">
-                        @if (isBest)
+                    var best = _results.OrderBy(r => r.Avg).First().Method;
+                    var isBest = summary.Method == best;
+                    <div class="result-card @(isBest ? "best" : "") @(summary.Errors > 0 ? "has-errors" : "")">
+                        @if (isBest && summary.Errors == 0)
                         {
                             <span class="badge">Fastest</span>
+                        }
+                        @if (summary.Errors > 0)
+                        {
+                            <span class="badge badge-error">@summary.Errors Error@(summary.Errors > 1 ? "s" : "")</span>
                         }
                         <h3>@summary.Label</h3>
                         <p class="description">@summary.Description</p>
@@ -102,6 +112,50 @@
             </div>
         </section>
 
+        <section class="results-section">
+            <h2>GC Pressure</h2>
+            <div class="results-grid">
+                @foreach (var summary in _results.OrderBy(r => r.Avg))
+                {
+                    var lowestGc = _results.OrderBy(r => r.TotalGen0 + r.TotalGen1 + r.TotalGen2).First().Method;
+                    var isBest = summary.Method == lowestGc;
+                    <div class="result-card @(isBest ? "best" : "")">
+                        @if (isBest)
+                        {
+                            <span class="badge badge-gc">Lowest GC</span>
+                        }
+                        <h3>@summary.Label</h3>
+                        <div class="stat-grid stat-grid-3">
+                            <div class="stat">
+                                <span class="stat-value">@summary.TotalGen0</span>
+                                <span class="stat-label">Gen 0</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@summary.TotalGen1</span>
+                                <span class="stat-label">Gen 1</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@summary.TotalGen2</span>
+                                <span class="stat-label">Gen 2</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@FormatBytes(summary.PeakMemory)</span>
+                                <span class="stat-label">Peak Memory</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@FormatBytes(summary.MemoryDelta)</span>
+                                <span class="stat-label">Memory Delta</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value @(summary.Errors > 0 ? "stat-error" : "stat-ok")">@summary.Errors</span>
+                                <span class="stat-label">Detach Errors</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+
         <section class="chart-section">
             <h2>Comparison</h2>
             <canvas @ref="_chartCanvasRef" width="700" height="350"></canvas>
@@ -113,19 +167,29 @@
                 <thead>
                     <tr>
                         <th>Method</th>
-                        <th>Iteration</th>
-                        <th>Time (ms)</th>
-                        <th>Throughput (MB/s)</th>
+                        <th>Iter</th>
+                        <th>Time</th>
+                        <th>Throughput</th>
+                        <th>Gen0</th>
+                        <th>Gen1</th>
+                        <th>Gen2</th>
+                        <th>Memory</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var run in _allRuns)
                     {
-                        <tr>
+                        <tr class="@(run.Error != null ? "row-error" : "")">
                             <td>@run.Label</td>
                             <td>@run.Iteration</td>
                             <td>@FormatMs(run.TimeMs)</td>
                             <td>@FormatThroughput(run.Throughput)</td>
+                            <td>@run.Gen0</td>
+                            <td>@run.Gen1</td>
+                            <td>@run.Gen2</td>
+                            <td>@FormatBytes(run.MemoryAfter)</td>
+                            <td class="@(run.Error != null ? "status-error" : "status-ok")">@(run.Error ?? "OK")</td>
                         </tr>
                     }
                 </tbody>
@@ -143,7 +207,11 @@
 @code {
     enum TestType { BuiltIn, HeapViewCopy, HeapViewDirect }
 
-    record RunResult(TestType Method, string Label, int Iteration, double TimeMs, double Throughput);
+    record RunResult(
+        TestType Method, string Label, int Iteration,
+        double TimeMs, double Throughput,
+        int Gen0, int Gen1, int Gen2,
+        long MemoryAfter, string? Error);
 
     class MethodSummary
     {
@@ -154,6 +222,12 @@
         public double Min { get; init; }
         public double Max { get; init; }
         public double AvgThroughput { get; init; }
+        public int TotalGen0 { get; init; }
+        public int TotalGen1 { get; init; }
+        public int TotalGen2 { get; init; }
+        public long PeakMemory { get; init; }
+        public long MemoryDelta { get; init; }
+        public int Errors { get; init; }
     }
 
     [Inject] BlazorJSRuntime JS { get; set; } = default!;
@@ -164,6 +238,7 @@
     CanvasRenderingContext2D? _workCtx;
 
     bool _running;
+    bool _stressTest;
     string? _status;
     double _progressPct;
     int _selectedSize = 4000;
@@ -230,13 +305,27 @@
         {
             var info = MethodInfo[method];
             var times = new List<double>();
+            var errors = 0;
+            var methodRuns = new List<RunResult>();
+
+            // Snapshot GC baseline for this method
+            var baseGen0 = GC.CollectionCount(0);
+            var baseGen1 = GC.CollectionCount(1);
+            var baseGen2 = GC.CollectionCount(2);
+            var baseMemory = GC.GetTotalMemory(false);
 
             // Warmup run (not counted)
             _status = $"Warming up {info.Label}...";
             _progressPct = (double)currentStep / totalSteps * 100;
             StateHasChanged();
             await Task.Delay(10);
-            RunSingle(method, w, h, _data);
+            RunSingle(method, w, h, _data, out _);
+
+            // Reset baseline after warmup
+            baseGen0 = GC.CollectionCount(0);
+            baseGen1 = GC.CollectionCount(1);
+            baseGen2 = GC.CollectionCount(2);
+            baseMemory = GC.GetTotalMemory(false);
 
             for (int i = 0; i < _iterations; i++)
             {
@@ -246,23 +335,62 @@
                 StateHasChanged();
                 await Task.Delay(5);
 
-                var ms = RunSingle(method, w, h, _data);
-                times.Add(ms);
+                if (_stressTest)
+                {
+                    // Force GC and allocate temp arrays to provoke heap growth / ArrayBuffer detachment
+                    GC.Collect(2, GCCollectionMode.Forced, true);
+                    GC.WaitForPendingFinalizers();
+                    // Allocate and release varying-size temp arrays to pressure the heap
+                    for (int a = 0; a < 5; a++)
+                    {
+                        var temp = new byte[(a + 1) * 500_000];
+                        temp[0] = 1; // ensure not optimized away
+                    }
+                }
 
-                var throughput = length / (ms / 1000.0);
-                _allRuns.Add(new RunResult(method, info.Label, i + 1, ms, throughput));
+                var gen0Before = GC.CollectionCount(0);
+                var gen1Before = GC.CollectionCount(1);
+                var gen2Before = GC.CollectionCount(2);
+
+                var ms = RunSingle(method, w, h, _data, out var error);
+
+                var gen0Delta = GC.CollectionCount(0) - gen0Before;
+                var gen1Delta = GC.CollectionCount(1) - gen1Before;
+                var gen2Delta = GC.CollectionCount(2) - gen2Before;
+                var memAfter = GC.GetTotalMemory(false);
+
+                var throughput = error == null ? length / (ms / 1000.0) : 0;
+                if (error != null) errors++;
+
+                var run = new RunResult(method, info.Label, i + 1, ms, throughput,
+                    gen0Delta, gen1Delta, gen2Delta, memAfter, error);
+                _allRuns.Add(run);
+                methodRuns.Add(run);
+                if (error == null) times.Add(ms);
             }
 
-            var avg = times.Average();
+            var totalGen0 = GC.CollectionCount(0) - baseGen0;
+            var totalGen1 = GC.CollectionCount(1) - baseGen1;
+            var totalGen2 = GC.CollectionCount(2) - baseGen2;
+            var peakMemory = methodRuns.Max(r => r.MemoryAfter);
+            var endMemory = GC.GetTotalMemory(false);
+
+            var avg = times.Count > 0 ? times.Average() : 0;
             _results.Add(new MethodSummary
             {
                 Method = method,
                 Label = info.Label,
                 Description = info.Desc,
                 Avg = avg,
-                Min = times.Min(),
-                Max = times.Max(),
-                AvgThroughput = length / (avg / 1000.0),
+                Min = times.Count > 0 ? times.Min() : 0,
+                Max = times.Count > 0 ? times.Max() : 0,
+                AvgThroughput = avg > 0 ? length / (avg / 1000.0) : 0,
+                TotalGen0 = totalGen0,
+                TotalGen1 = totalGen1,
+                TotalGen2 = totalGen2,
+                PeakMemory = peakMemory,
+                MemoryDelta = endMemory - baseMemory,
+                Errors = errors,
             });
         }
 
@@ -275,29 +403,37 @@
         DrawChart();
     }
 
-    double RunSingle(TestType method, int w, int h, byte[] data)
+    double RunSingle(TestType method, int w, int h, byte[] data, out string? error)
     {
+        error = null;
         var sw = Stopwatch.StartNew();
-        switch (method)
+        try
         {
-            case TestType.HeapViewDirect:
-                _workCtx!.PutImageBytes(data, w, h);
-                break;
-            case TestType.BuiltIn:
-                using (var uint8Array = JS.ReturnMe<Uint8Array>(data))
-                using (var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer))
-                using (var imageData = new ImageData(uint8ClampedArray, w, h))
-                {
-                    _workCtx!.PutImageData(imageData, 0, 0);
-                }
-                break;
-            case TestType.HeapViewCopy:
-                using (var uint8ClampedArray = new Uint8ClampedArray(data))
-                using (var imageData = new ImageData(uint8ClampedArray, w, h))
-                {
-                    _workCtx!.PutImageData(imageData, 0, 0);
-                }
-                break;
+            switch (method)
+            {
+                case TestType.HeapViewDirect:
+                    _workCtx!.PutImageBytes(data, w, h);
+                    break;
+                case TestType.BuiltIn:
+                    using (var uint8Array = JS.ReturnMe<Uint8Array>(data))
+                    using (var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer))
+                    using (var imageData = new ImageData(uint8ClampedArray, w, h))
+                    {
+                        _workCtx!.PutImageData(imageData, 0, 0);
+                    }
+                    break;
+                case TestType.HeapViewCopy:
+                    using (var uint8ClampedArray = new Uint8ClampedArray(data))
+                    using (var imageData = new ImageData(uint8ClampedArray, w, h))
+                    {
+                        _workCtx!.PutImageData(imageData, 0, 0);
+                    }
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message.Length > 80 ? ex.Message[..80] + "..." : ex.Message;
         }
         sw.Stop();
         return sw.Elapsed.TotalMilliseconds;
@@ -316,6 +452,7 @@
 
         var ordered = _results.OrderByDescending(r => r.Avg).ToList();
         var maxVal = ordered.Max(r => r.Max);
+        if (maxVal <= 0) { ctx.Dispose(); chartCanvas.Dispose(); return; }
 
         var barAreaTop = 40.0;
         var barAreaBottom = ch - 50;
@@ -397,8 +534,18 @@
 
     static string FormatThroughput(double bps)
     {
+        if (bps <= 0) return "—";
         var mbps = bps / 1_000_000;
         return mbps >= 1000 ? $"{mbps / 1000:F2} GB/s" : $"{mbps:F1} MB/s";
+    }
+
+    static string FormatBytes(long bytes)
+    {
+        if (bytes < 0) return $"-{FormatBytes(-bytes)}";
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
     }
 
     public void Dispose()
