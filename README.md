@@ -14,7 +14,7 @@ The app compares three strategies for transferring a large RGBA byte array from 
 
 HeapView provides a JavaScript `TypedArray` view directly into the .NET WebAssembly linear memory, eliminating unnecessary data copies during interop calls.
 
-[![Generate Splat](https://raw.githubusercontent.com/LostBeard/HeapViewTest/master/HeapViewTest/wwwroot/screenshots/benchmark-1.jpg)](https://lostbeard.github.io/HeapViewTest/)  
+[![Generate Splat](https://raw.githubusercontent.com/LostBeard/HeapViewTest/master/HeapViewTest/wwwroot/screenshots/benchmark-1.jpg)](https://raw.githubusercontent.com/LostBeard/HeapViewTest/master/HeapViewTest/wwwroot/screenshots/benchmark-1.jpg)  
 
 ## Running
 
