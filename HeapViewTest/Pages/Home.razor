@@ -1,0 +1,145 @@
+﻿@page "/"
+@using System.Diagnostics
+@using SpawnDev.BlazorJS
+@using SpawnDev.BlazorJS.JSObjects
+@using SpawnDev.BlazorJS.Toolbox
+@using System.Runtime.InteropServices
+@implements IDisposable
+
+<PageTitle>SpawnDev.BlazorJS HeapView Performance Test</PageTitle>
+
+<h1>SpawnDev.BlazorJS HeapView Performance Test</h1>
+
+<div style="padding: 0.5rem;">
+</div>
+<div style="padding: 0.5rem;">
+    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.BuiltIn))">.Net BuiltIn (base)</button>
+    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.HeapViewCopy))">HeapView Copy (faster)</button>
+    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.HeapViewDirect))">HeapView Direct (fastest)</button>
+    <!-- <button class="btn btn-primary" disabled="@_running" @onclick="@(() => CheckThroughPutFloat32())">CheckThroughPutFloat32</button> -->
+</div>
+<div style="padding: 0.5rem;">
+    <pre>
+        @_log
+    </pre>
+</div>
+<div style="padding: 0.5rem;">
+    <canvas style="border: 1px solid black; max-width: 600px; max-height: 600px;" @ref=canvasRef width="600" height="600"></canvas>
+</div>
+
+@code {
+    enum TestType
+    {
+        HeapViewCopy,
+        HeapViewDirect,
+        BuiltIn
+    }
+    [Inject]
+    BlazorJSRuntime JS { get; set; } = default!;
+
+    ElementReference canvasRef;
+
+    HTMLCanvasElement? canvas;
+    CanvasRenderingContext2D? ctx;
+
+    string _log = "Ready";
+    bool _running = false;
+    int placeIndex = 1;
+
+    byte[]? __data;
+    async Task WriteData(TestType testType)
+    {
+        if (canvas == null || ctx == null) return;
+        var w = 8000;
+        var h = 8000;
+        var length = w * h * 4;
+        if (__data?.Length != length)
+        {
+            await Log("Generating test data please wait. (Only happens once)", clear: true);
+            __data = new byte[w * h * 4];
+            for (var i = 0; i < __data.Length; i += 4)
+            {
+                __data[i] = (byte)i;
+                __data[i + 1] = (byte)(255 - i);
+                __data[i + 2] = (byte)(255 - i);
+                __data[i + 3] = (byte)255;
+            }
+        }
+        canvas.Width = w;
+        canvas.Height = h;
+        await Log("Running...", clear: true);
+        var sw = Stopwatch.StartNew();
+        if (testType == TestType.HeapViewDirect)
+        {
+            // In SpawnDev.BlazorJS 2.27 and later, no copy of __data is made, the __data in .Net memory is sent to the PutImageData call. 
+            // __data is cast to a HeapView in PutImageBytes before being used. This prevents an unnecessary copy step.
+            // HeapView can only be used in situations where it will be used immediately because 
+            // as soon as the Heap buffer resizes (happens often) the view will become invalid (detached.)
+            ctx.PutImageBytes(__data, w, h);
+        }
+        else if (testType== TestType.BuiltIn)
+        {
+            // this uses .Net's default serialization of byte[] which creates a copy of __data in JS memory and then creates a Uint8ClampedArray view on that copy.
+            using var uint8Array = JS.ReturnMe<Uint8Array>(__data);
+            using var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer);
+            using var imageData = new ImageData(uint8ClampedArray, w, h);
+            ctx.PutImageData(imageData, 0, 0);
+        }
+        else if (testType == TestType.HeapViewCopy)
+        {
+            // this creates a (fast) copy of __data when it creates the Uint8ClampedArray
+            using var uint8ClampedArray = new Uint8ClampedArray(__data);
+            using var imageData = new ImageData(uint8ClampedArray, w, h);
+            ctx.PutImageData(imageData, 0, 0);
+        }
+        var bps = length / sw.Elapsed.TotalSeconds;
+        await Log($"PutImageData: {length} bytes in {sw.ElapsedMilliseconds}ms at a rate of {Math.Round(bps / 1000000, 3)} MBps");
+    }
+
+
+    void CheckThroughPutFloat32(int iterations = 10)
+    {
+        var elementSize = Marshal.SizeOf<float>();
+        var values = Enumerable.Range(0, 10000000).Select(o => (float)o).ToArray();
+        var totalBytes = elementSize * values.Length;
+        var writeTimes = new List<double>();
+        var readTimes = new List<double>();
+        var sw = Stopwatch.StartNew();
+        for(var i = 0; i < iterations; i++)
+        {
+            sw.Restart();
+            using var typedArray = new Float32Array(values);
+            sw.Stop();
+            writeTimes.Add(sw.Elapsed.TotalMilliseconds);
+            sw.Restart();
+            var readBack = typedArray.ReCast<Uint8Array>().ReadBytes();
+            sw.Stop();
+            readTimes.Add(sw.Elapsed.TotalMilliseconds);
+        }
+        var avgRead = readTimes.Average();
+        var avgWrite = writeTimes.Average();
+        var nm = true;
+    }
+
+    async Task Log(string msg = "", bool clear = false)
+    {
+        if (clear) _log = "";
+        _log += msg + "\n";
+        StateHasChanged();
+        await Task.Delay(5);
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            canvas = new HTMLCanvasElement(canvasRef);
+            ctx = canvas.Get2DContext();
+        }
+    }
+    public void Dispose()
+    {
+        ctx?.Dispose();
+        canvas?.Dispose();
+    }
+}
+
