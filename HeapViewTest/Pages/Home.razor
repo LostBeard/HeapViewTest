@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 @using System.Diagnostics
 @using SpawnDev.BlazorJS
 @using SpawnDev.BlazorJS.JSObjects
@@ -6,140 +6,404 @@
 @using System.Runtime.InteropServices
 @implements IDisposable
 
-<PageTitle>SpawnDev.BlazorJS HeapView Performance Test</PageTitle>
+<PageTitle>BlazorJS HeapView Benchmark</PageTitle>
 
-<h1>SpawnDev.BlazorJS HeapView Performance Test</h1>
+<div class="benchmark-app">
+    <header class="benchmark-header">
+        <h1>SpawnDev.BlazorJS HeapView Benchmark</h1>
+        <p class="subtitle">Comparing .NET-to-JavaScript interop strategies for image data transfer</p>
+        <div class="header-links">
+            <a href="https://github.com/LostBeard/HeapViewTest" target="_blank">HeapViewTest on GitHub</a>
+            <a href="https://github.com/LostBeard/SpawnDev.BlazorJS" target="_blank">SpawnDev.BlazorJS on GitHub</a>
+        </div>
+    </header>
 
-<div style="padding: 0.5rem;">
+    <section class="config-panel">
+        <div class="config-row">
+            <label>
+                Image Size
+                <select @bind="_selectedSize" disabled="@_running">
+                    <option value="2000">2000 x 2000 (16 MB)</option>
+                    <option value="4000">4000 x 4000 (64 MB)</option>
+                    <option value="6000">6000 x 6000 (144 MB)</option>
+                    <option value="8000">8000 x 8000 (256 MB)</option>
+                </select>
+            </label>
+            <label>
+                Iterations
+                <select @bind="_iterations" disabled="@_running">
+                    <option value="3">3</option>
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                </select>
+            </label>
+            <button class="btn-run" disabled="@_running" @onclick="RunAllBenchmarks">
+                @if (_running)
+                {
+                    <span class="spinner"></span>
+                    <span>Running...</span>
+                }
+                else
+                {
+                    <span>Run Benchmark</span>
+                }
+            </button>
+        </div>
+    </section>
+
+    @if (_status != null)
+    {
+        <section class="status-bar">
+            <div class="progress-track">
+                <div class="progress-fill" style="width: @(_progressPct)%"></div>
+            </div>
+            <span class="status-text">@_status</span>
+        </section>
+    }
+
+    @if (_results.Count > 0)
+    {
+        <section class="results-section">
+            <h2>Results</h2>
+            <div class="results-grid">
+                @foreach (var group in _results.GroupBy(r => r.Method).OrderBy(g => g.Min(r => r.Avg)))
+                {
+                    var best = _results.GroupBy(r => r.Method).OrderBy(g => g.First().Avg).First().Key;
+                    var isBest = group.Key == best;
+                    var summary = group.First();
+                    <div class="result-card @(isBest ? "best" : "")">
+                        @if (isBest)
+                        {
+                            <span class="badge">Fastest</span>
+                        }
+                        <h3>@summary.Label</h3>
+                        <p class="description">@summary.Description</p>
+                        <div class="stat-grid">
+                            <div class="stat">
+                                <span class="stat-value">@FormatMs(summary.Avg)</span>
+                                <span class="stat-label">Avg</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@FormatMs(summary.Min)</span>
+                                <span class="stat-label">Min</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@FormatMs(summary.Max)</span>
+                                <span class="stat-label">Max</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value">@FormatThroughput(summary.AvgThroughput)</span>
+                                <span class="stat-label">Throughput</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <section class="chart-section">
+            <h2>Comparison</h2>
+            <canvas @ref="_chartCanvasRef" width="700" height="350"></canvas>
+        </section>
+
+        <section class="details-section">
+            <h2>All Iterations</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Iteration</th>
+                        <th>Time (ms)</th>
+                        <th>Throughput (MB/s)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in _allRuns)
+                    {
+                        <tr>
+                            <td>@run.Label</td>
+                            <td>@run.Iteration</td>
+                            <td>@FormatMs(run.TimeMs)</td>
+                            <td>@FormatThroughput(run.Throughput)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
+
+    <footer class="benchmark-footer">
+        Powered by <a href="https://github.com/LostBeard/SpawnDev.BlazorJS" target="_blank">SpawnDev.BlazorJS</a>
+    </footer>
 </div>
-<div style="padding: 0.5rem;">
-    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.BuiltIn))">.Net BuiltIn (base)</button>
-    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.HeapViewCopy))">HeapView Copy (faster)</button>
-    <button class="btn btn-primary" disabled="@_running" @onclick="@(() => WriteData(TestType.HeapViewDirect))">HeapView Direct (fastest)</button>
-    <!-- <button class="btn btn-primary" disabled="@_running" @onclick="@(() => CheckThroughPutFloat32())">CheckThroughPutFloat32</button> -->
-</div>
-<div style="padding: 0.5rem;">
-    <pre>
-        @_log
-    </pre>
-</div>
-<div style="padding: 0.5rem;">
-    <canvas style="border: 1px solid black; max-width: 600px; max-height: 600px;" @ref=canvasRef width="600" height="600"></canvas>
-</div>
+
+<canvas @ref="_workCanvasRef" width="1" height="1" style="display:none;"></canvas>
 
 @code {
-    enum TestType
+    enum TestType { BuiltIn, HeapViewCopy, HeapViewDirect }
+
+    record RunResult(TestType Method, string Label, int Iteration, double TimeMs, double Throughput);
+
+    class MethodSummary
     {
-        HeapViewCopy,
-        HeapViewDirect,
-        BuiltIn
-    }
-    [Inject]
-    BlazorJSRuntime JS { get; set; } = default!;
-
-    ElementReference canvasRef;
-
-    HTMLCanvasElement? canvas;
-    CanvasRenderingContext2D? ctx;
-
-    string _log = "Ready";
-    bool _running = false;
-    int placeIndex = 1;
-
-    byte[]? __data;
-    async Task WriteData(TestType testType)
-    {
-        if (canvas == null || ctx == null) return;
-        var w = 8000;
-        var h = 8000;
-        var length = w * h * 4;
-        if (__data?.Length != length)
-        {
-            await Log("Generating test data please wait. (Only happens once)", clear: true);
-            __data = new byte[w * h * 4];
-            for (var i = 0; i < __data.Length; i += 4)
-            {
-                __data[i] = (byte)i;
-                __data[i + 1] = (byte)(255 - i);
-                __data[i + 2] = (byte)(255 - i);
-                __data[i + 3] = (byte)255;
-            }
-        }
-        canvas.Width = w;
-        canvas.Height = h;
-        await Log("Running...", clear: true);
-        var sw = Stopwatch.StartNew();
-        if (testType == TestType.HeapViewDirect)
-        {
-            // In SpawnDev.BlazorJS 2.27 and later, no copy of __data is made, the __data in .Net memory is sent to the PutImageData call. 
-            // __data is cast to a HeapView in PutImageBytes before being used. This prevents an unnecessary copy step.
-            // HeapView can only be used in situations where it will be used immediately because 
-            // as soon as the Heap buffer resizes (happens often) the view will become invalid (detached.)
-            ctx.PutImageBytes(__data, w, h);
-        }
-        else if (testType== TestType.BuiltIn)
-        {
-            // this uses .Net's default serialization of byte[] which creates a copy of __data in JS memory and then creates a Uint8ClampedArray view on that copy.
-            using var uint8Array = JS.ReturnMe<Uint8Array>(__data);
-            using var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer);
-            using var imageData = new ImageData(uint8ClampedArray, w, h);
-            ctx.PutImageData(imageData, 0, 0);
-        }
-        else if (testType == TestType.HeapViewCopy)
-        {
-            // this creates a (fast) copy of __data when it creates the Uint8ClampedArray
-            using var uint8ClampedArray = new Uint8ClampedArray(__data);
-            using var imageData = new ImageData(uint8ClampedArray, w, h);
-            ctx.PutImageData(imageData, 0, 0);
-        }
-        var bps = length / sw.Elapsed.TotalSeconds;
-        await Log($"PutImageData: {length} bytes in {sw.ElapsedMilliseconds}ms at a rate of {Math.Round(bps / 1000000, 3)} MBps");
+        public TestType Method { get; init; }
+        public string Label { get; init; } = "";
+        public string Description { get; init; } = "";
+        public double Avg { get; init; }
+        public double Min { get; init; }
+        public double Max { get; init; }
+        public double AvgThroughput { get; init; }
     }
 
+    [Inject] BlazorJSRuntime JS { get; set; } = default!;
 
-    void CheckThroughPutFloat32(int iterations = 10)
-    {
-        var elementSize = Marshal.SizeOf<float>();
-        var values = Enumerable.Range(0, 10000000).Select(o => (float)o).ToArray();
-        var totalBytes = elementSize * values.Length;
-        var writeTimes = new List<double>();
-        var readTimes = new List<double>();
-        var sw = Stopwatch.StartNew();
-        for(var i = 0; i < iterations; i++)
-        {
-            sw.Restart();
-            using var typedArray = new Float32Array(values);
-            sw.Stop();
-            writeTimes.Add(sw.Elapsed.TotalMilliseconds);
-            sw.Restart();
-            var readBack = typedArray.ReCast<Uint8Array>().ReadBytes();
-            sw.Stop();
-            readTimes.Add(sw.Elapsed.TotalMilliseconds);
-        }
-        var avgRead = readTimes.Average();
-        var avgWrite = writeTimes.Average();
-        var nm = true;
-    }
+    ElementReference _workCanvasRef;
+    ElementReference _chartCanvasRef;
+    HTMLCanvasElement? _workCanvas;
+    CanvasRenderingContext2D? _workCtx;
 
-    async Task Log(string msg = "", bool clear = false)
+    bool _running;
+    string? _status;
+    double _progressPct;
+    int _selectedSize = 4000;
+    int _iterations = 5;
+
+    List<MethodSummary> _results = new();
+    List<RunResult> _allRuns = new();
+    byte[]? _data;
+
+    static readonly Dictionary<TestType, (string Label, string Desc)> MethodInfo = new()
     {
-        if (clear) _log = "";
-        _log += msg + "\n";
-        StateHasChanged();
-        await Task.Delay(5);
-    }
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+        [TestType.BuiltIn] = (".NET Built-in", "Default byte[] serialization. Creates a full copy in JS memory."),
+        [TestType.HeapViewCopy] = ("HeapView Copy", "Fast copy via Uint8ClampedArray constructor from pinned .NET memory."),
+        [TestType.HeapViewDirect] = ("HeapView Direct", "Zero-copy. Pins .NET memory and passes it directly to PutImageData."),
+    };
+
+    protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
-            canvas = new HTMLCanvasElement(canvasRef);
-            ctx = canvas.Get2DContext();
+            _workCanvas = new HTMLCanvasElement(_workCanvasRef);
+            _workCtx = _workCanvas.Get2DContext();
         }
     }
+
+    async Task RunAllBenchmarks()
+    {
+        if (_workCanvas == null || _workCtx == null) return;
+        _running = true;
+        _results.Clear();
+        _allRuns.Clear();
+        StateHasChanged();
+
+        var w = _selectedSize;
+        var h = _selectedSize;
+        var length = w * h * 4;
+
+        // Generate test data
+        if (_data?.Length != length)
+        {
+            _status = "Generating test data...";
+            _progressPct = 0;
+            StateHasChanged();
+            await Task.Delay(10);
+
+            _data = new byte[length];
+            for (var i = 0; i < _data.Length; i += 4)
+            {
+                _data[i] = (byte)i;
+                _data[i + 1] = (byte)(255 - i);
+                _data[i + 2] = (byte)(255 - i);
+                _data[i + 3] = 255;
+            }
+        }
+
+        _workCanvas.Width = w;
+        _workCanvas.Height = h;
+
+        var methods = new[] { TestType.BuiltIn, TestType.HeapViewCopy, TestType.HeapViewDirect };
+        var totalSteps = methods.Length * _iterations;
+        var currentStep = 0;
+
+        foreach (var method in methods)
+        {
+            var info = MethodInfo[method];
+            var times = new List<double>();
+
+            // Warmup run (not counted)
+            _status = $"Warming up {info.Label}...";
+            _progressPct = (double)currentStep / totalSteps * 100;
+            StateHasChanged();
+            await Task.Delay(10);
+            RunSingle(method, w, h, _data);
+
+            for (int i = 0; i < _iterations; i++)
+            {
+                currentStep++;
+                _status = $"Running {info.Label} — iteration {i + 1}/{_iterations}";
+                _progressPct = (double)currentStep / totalSteps * 100;
+                StateHasChanged();
+                await Task.Delay(5);
+
+                var ms = RunSingle(method, w, h, _data);
+                times.Add(ms);
+
+                var throughput = length / (ms / 1000.0);
+                _allRuns.Add(new RunResult(method, info.Label, i + 1, ms, throughput));
+            }
+
+            var avg = times.Average();
+            _results.Add(new MethodSummary
+            {
+                Method = method,
+                Label = info.Label,
+                Description = info.Desc,
+                Avg = avg,
+                Min = times.Min(),
+                Max = times.Max(),
+                AvgThroughput = length / (avg / 1000.0),
+            });
+        }
+
+        _status = null;
+        _progressPct = 100;
+        _running = false;
+        StateHasChanged();
+        await Task.Delay(10);
+
+        DrawChart();
+    }
+
+    double RunSingle(TestType method, int w, int h, byte[] data)
+    {
+        var sw = Stopwatch.StartNew();
+        switch (method)
+        {
+            case TestType.HeapViewDirect:
+                _workCtx!.PutImageBytes(data, w, h);
+                break;
+            case TestType.BuiltIn:
+                using (var uint8Array = JS.ReturnMe<Uint8Array>(data))
+                using (var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer))
+                using (var imageData = new ImageData(uint8ClampedArray, w, h))
+                {
+                    _workCtx!.PutImageData(imageData, 0, 0);
+                }
+                break;
+            case TestType.HeapViewCopy:
+                using (var uint8ClampedArray = new Uint8ClampedArray(data))
+                using (var imageData = new ImageData(uint8ClampedArray, w, h))
+                {
+                    _workCtx!.PutImageData(imageData, 0, 0);
+                }
+                break;
+        }
+        sw.Stop();
+        return sw.Elapsed.TotalMilliseconds;
+    }
+
+    void DrawChart()
+    {
+        var chartCanvas = new HTMLCanvasElement(_chartCanvasRef);
+        var ctx = chartCanvas.Get2DContext();
+
+        var cw = 700.0;
+        var ch = 350.0;
+
+        // Clear
+        ctx.ClearRect(0, 0, cw, ch);
+
+        var ordered = _results.OrderByDescending(r => r.Avg).ToList();
+        var maxVal = ordered.Max(r => r.Max);
+
+        var barAreaTop = 40.0;
+        var barAreaBottom = ch - 50;
+        var barAreaLeft = 140.0;
+        var barAreaRight = cw - 30;
+        var barAreaHeight = barAreaBottom - barAreaTop;
+        var barAreaWidth = barAreaRight - barAreaLeft;
+
+        // Title
+        ctx.Font = "bold 16px system-ui, sans-serif";
+        ctx.FillStyle = "#e2e8f0";
+        ctx.TextAlign = "center";
+        ctx.FillText("Average Time (lower is better)", cw / 2, 24);
+
+        // Grid lines
+        ctx.StrokeStyle = "#2a2d3a";
+        ctx.LineWidth = 1;
+        var gridSteps = 5;
+        ctx.Font = "12px system-ui, sans-serif";
+        ctx.FillStyle = "#64748b";
+        ctx.TextAlign = "right";
+        for (int i = 0; i <= gridSteps; i++)
+        {
+            var x = barAreaLeft + (barAreaWidth * i / gridSteps);
+            ctx.BeginPath();
+            ctx.MoveTo(x, barAreaTop - 5);
+            ctx.LineTo(x, barAreaBottom);
+            ctx.Stroke();
+
+            var val = maxVal * i / gridSteps;
+            ctx.FillText($"{val:F0} ms", x, barAreaBottom + 18);
+        }
+        ctx.TextAlign = "left";
+
+        // Bars
+        var barCount = ordered.Count;
+        var barSpacing = barAreaHeight / barCount;
+        var barHeight = barSpacing * 0.6;
+        string[] colors = { "#3b82f6", "#10b981", "#a78bfa" };
+
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var r = ordered[i];
+            var y = barAreaTop + (barSpacing * i) + (barSpacing - barHeight) / 2;
+            var barW = (r.Avg / maxVal) * barAreaWidth;
+
+            // Min-max range line
+            var minX = barAreaLeft + (r.Min / maxVal) * barAreaWidth;
+            var maxX = barAreaLeft + (r.Max / maxVal) * barAreaWidth;
+            ctx.StrokeStyle = "#475569";
+            ctx.LineWidth = 2;
+            ctx.BeginPath();
+            ctx.MoveTo(minX, y + barHeight / 2);
+            ctx.LineTo(maxX, y + barHeight / 2);
+            ctx.Stroke();
+
+            // Bar
+            ctx.FillStyle = colors[i % colors.Length];
+            ctx.FillRect(barAreaLeft, y, barW, barHeight);
+
+            // Value label on bar
+            ctx.FillStyle = "#e2e8f0";
+            ctx.Font = "bold 13px system-ui, sans-serif";
+            ctx.TextAlign = "left";
+            ctx.FillText($"{r.Avg:F1} ms", barAreaLeft + barW + 6, y + barHeight / 2 + 5);
+
+            // Method label
+            ctx.FillStyle = "#94a3b8";
+            ctx.Font = "13px system-ui, sans-serif";
+            ctx.TextAlign = "right";
+            ctx.FillText(r.Label, barAreaLeft - 10, y + barHeight / 2 + 5);
+        }
+
+        ctx.Dispose();
+        chartCanvas.Dispose();
+    }
+
+    static string FormatMs(double ms) => ms < 1 ? $"{ms:F3} ms" : $"{ms:F1} ms";
+
+    static string FormatThroughput(double bps)
+    {
+        var mbps = bps / 1_000_000;
+        return mbps >= 1000 ? $"{mbps / 1000:F2} GB/s" : $"{mbps:F1} MB/s";
+    }
+
     public void Dispose()
     {
-        ctx?.Dispose();
-        canvas?.Dispose();
+        _workCtx?.Dispose();
+        _workCanvas?.Dispose();
     }
 }
-
