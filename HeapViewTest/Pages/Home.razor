@@ -297,7 +297,7 @@
         _workCanvas.Width = w;
         _workCanvas.Height = h;
 
-        var methods = new[] { TestType.BuiltIn, TestType.HeapViewCopy, TestType.HeapViewDirect };
+        var methods = new[] { TestType.HeapViewDirect, TestType.HeapViewCopy, TestType.BuiltIn };
         var totalSteps = methods.Length * _iterations;
         var currentStep = 0;
 
@@ -343,7 +343,7 @@
                     // Allocate and release varying-size temp arrays to pressure the heap
                     for (int a = 0; a < 5; a++)
                     {
-                        var temp = new byte[(a + 1) * 500_000];
+                        var temp = new byte[(a + 1) * 25_000_000];
                         temp[0] = 1; // ensure not optimized away
                     }
                 }
@@ -416,7 +416,8 @@
                     break;
                 case TestType.BuiltIn:
                     using (var uint8Array = JS.ReturnMe<Uint8Array>(data))
-                    using (var uint8ClampedArray = new Uint8ClampedArray(uint8Array.Buffer))
+                    using (var arrayBuffer = uint8Array.Buffer)
+                    using (var uint8ClampedArray = new Uint8ClampedArray(arrayBuffer))
                     using (var imageData = new ImageData(uint8ClampedArray, w, h))
                     {
                         _workCtx!.PutImageData(imageData, 0, 0);
