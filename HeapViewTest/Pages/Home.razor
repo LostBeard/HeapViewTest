@@ -36,6 +36,8 @@
                     <option value="5">5</option>
                     <option value="10">10</option>
                     <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
                 </select>
             </label>
             <label class="toggle-label">
@@ -435,6 +437,7 @@
         catch (Exception ex)
         {
             error = ex.Message.Length > 80 ? ex.Message[..80] + "..." : ex.Message;
+            Console.WriteLine($"Exc: {ex.ToString()}");
         }
         sw.Stop();
         return sw.Elapsed.TotalMilliseconds;
